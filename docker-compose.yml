@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  storage:
+    build:
+      context: StorageService
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    networks:
+      - app-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5001
+
+  posts:
+    build:
+      context: PostService
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5002
+    depends_on:
+      - storage
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
