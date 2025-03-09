@@ -1,45 +1,49 @@
-﻿using API.Models;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
+using System.Threading.Tasks;
 using API.Models;
 using API.Services;
-using System.IO;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
-namespace PostService.Controllers
+namespace API.Controllers
 {
     [ApiController]
-    [Route("api/post")]
+    [Route("api/posts")]
     public class PostController : ControllerBase
     {
-        private readonly StorageService _storageService;
+        private readonly PostService _postService;
+        private readonly ILogger<PostController> _logger;
 
-        public PostController(StorageService storageService)
+        public PostController(PostService postService, ILogger<PostController> logger)
         {
-            _storageService = storageService;
+            _postService = postService;
+            _logger = logger;
         }
 
-        [HttpPost("upload")]
-        public async Task<IActionResult> UploadFile([FromForm] IFormFile file)
+        [HttpPost]
+        public async Task<IActionResult> CreatePost([FromBody] CreatePostDto request)
         {
-            if (file == null || file.Length == 0)
-                return BadRequest("No file uploaded");
-
-            var metadata = new FileMetadataDto
+            try
             {
-                FileName = file.FileName,
-                MimeType = file.ContentType,
-                Size = file.Length
-            };
+                var post = await _postService.CreatePostAsync(request);
+                if (post == null)
+                    return NotFound(new { message = "The attached file does not exist or is not uploaded." });
 
-            var (signedUrl, fileId) = await _storageService.GetSignedUrlAsync(metadata);
+                return Ok(new { post.Id, message = "Post created successfully" });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogError(ex, "Invalid post request");
+                return BadRequest(new { message = ex.Message });
+            }
+        }
 
-            using var memoryStream = new MemoryStream();
-            await file.CopyToAsync(memoryStream);
-            var fileBytes = memoryStream.ToArray();
-
-            var responseMessage = await _storageService.UploadFileAsync(signedUrl, fileBytes, file.FileName, file.ContentType);
-
-            return Ok(new { fileId, message = "File uploaded successfully", response = responseMessage });
+        [HttpGet("{postId}")]
+        public IActionResult GetPost(string postId)
+        {
+            var post = _postService.GetPostById(postId);
+            return post == null
+                ? NotFound(new { postId, message = "Post not found" })
+                : Ok(post);
         }
     }
 }

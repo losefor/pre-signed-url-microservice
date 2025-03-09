@@ -1,53 +1,39 @@
 ﻿using System.Net.Http;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
 using API.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 
 namespace API.Services
 {
-    public class StorageService
+    public class StorageService : IStorageService
     {
         private readonly HttpClient _httpClient;
         private readonly string _storageServiceUrl;
+        private readonly ILogger<StorageService> _logger;
 
-        public StorageService(HttpClient httpClient, IConfiguration config)
+        public StorageService(HttpClient httpClient, IConfiguration config, ILogger<StorageService> logger)
         {
             _httpClient = httpClient;
-            _storageServiceUrl = config["STORAGE_SERVICE_URL"] ?? "http://storage-service:5001";
+            _storageServiceUrl = config["StorageService:Url"] ?? throw new ArgumentNullException("StorageService:Url is missing in configuration");
+            _logger = logger;
         }
 
-        public async Task<(string signedUrl, string fileId)> GetSignedUrlAsync(FileMetadataDto metadata)
+        public async Task<FileMetadataResponse?> GetFileMetadataAsync(string fileId)
         {
-            var json = JsonSerializer.Serialize(metadata);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var requestUrl = $"{_storageServiceUrl}/exists/{fileId}";
+            _logger.LogInformation("Checking file existence: {Url}", requestUrl);
 
-            var response = await _httpClient.PostAsync($"{_storageServiceUrl}/api/storage/signed-url", content);
-            response.EnsureSuccessStatusCode();
+            var response = await _httpClient.GetAsync(requestUrl);
 
-            var responseBody = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseBody);
-            var root = doc.RootElement;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("File {FileId} not found", fileId);
+                return null;
+            }
 
-            var signedUrl = root.GetProperty("signedUrl").GetString();
-            var fileId = root.GetProperty("fileId").GetString();
-
-            return (signedUrl, fileId);
-        }
-
-        public async Task<string> UploadFileAsync(string signedUrl, byte[] fileBytes, string fileName, string mimeType)
-        {
-            using var content = new MultipartFormDataContent();
-            using var fileContent = new ByteArrayContent(fileBytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
-
-            content.Add(fileContent, "file", fileName);
-
-            var response = await _httpClient.PostAsync(signedUrl, content);
-            response.EnsureSuccessStatusCode();
-
-            return await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<FileMetadataResponse>(await response.Content.ReadAsStringAsync());
         }
     }
 }
